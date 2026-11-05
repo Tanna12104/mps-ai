@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and subscription membership details",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 200 },
+        "photoURL": { "type": "string", "maxLength": 1000 },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "membership": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+        "tokensRemaining": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "membership"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "A chat thread containing messages",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "mpsModelId": { "type": "string", "maxLength": 50 },
+        "isPinned": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "createdAt", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "An individual message in a conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "conversationId": { "type": "string", "maxLength": 128 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["user", "assistant", "system"] },
+        "content": { "type": "string", "maxLength": 50000 },
+        "mpsModelId": { "type": "string", "maxLength": 50 },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "conversationId", "ownerId", "role", "content", "timestamp"]
+    },
+    "UsageRecord": {
+      "title": "UsageRecord",
+      "description": "Usage and token metrics per user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "requestCount": { "type": "number" },
+        "tokenUsage": { "type": "number" },
+        "provider": { "type": "string", "maxLength": 50 },
+        "model": { "type": "string", "maxLength": 50 },
+        "usageDate": { "type": "string", "maxLength": 30 }
+      },
+      "required": ["id", "userId", "requestCount", "tokenUsage", "usageDate"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "Platform settings and public demo announcements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "maintenanceMode": { "type": "boolean" },
+        "announcement": { "type": "string", "maxLength": 500 },
+        "allowPublicDemo": { "type": "boolean" },
+        "activeProviders": { "type": "string", "maxLength": 200 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "maintenanceMode", "allowPublicDemo"]
+    },
+    "AdminDoc": {
+      "title": "AdminDoc",
+      "description": "Trusted admin role lookup document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile documents indexed by user ID"
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Conversations owned by users"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Subcollection of messages inside a conversation"
+    },
+    "/usage/{usageId}": {
+      "schema": { "$ref": "#/entities/UsageRecord" },
+      "description": "Token and API usage tracking documents"
+    },
+    "/system_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/SystemSetting" },
+      "description": "Platform configuration and maintenance state"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminDoc" },
+      "description": "Trusted admin directory"
+    }
+  }
+}

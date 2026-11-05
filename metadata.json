@@ -1,0 +1,6 @@
+{
+  "name": "MPS AI — Global Intelligent Platform",
+  "description": "Next-generation liquid glass AI platform powered by proprietary MPS intelligence models, real-time streaming, and enterprise reasoning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
