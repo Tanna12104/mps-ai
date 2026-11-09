@@ -113,7 +113,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Dark/Light mode toggle */}
         <button
           onClick={onToggleDark}
-          className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+          className="p-1.5 sm:p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
           title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           aria-label="Toggle theme"
         >
@@ -123,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Settings button */}
         <button
           onClick={onOpenSettings}
-          className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+          className="p-1.5 sm:p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
           title={t.settings}
           aria-label="Open settings"
         >

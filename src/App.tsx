@@ -307,16 +307,28 @@ export default function App() {
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        const adminCheck = isUserAdmin(fbUser.email);
+        let isAdminMember = false;
+        try {
+          const res = await fetch('/api/admin/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: fbUser.email }),
+          });
+          const adminData = await res.json();
+          isAdminMember = Boolean(adminData.authorized);
+        } catch {
+          isAdminMember = false;
+        }
+
         const activeUser: UserSession = {
           id: fbUser.uid,
           name: fbUser.displayName || 'Intelligence Member',
           email: fbUser.email || 'user@mps.ai',
-          role: adminCheck ? 'admin' : 'user',
+          role: isAdminMember ? 'admin' : 'user',
           avatar:
             fbUser.photoURL ||
             'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-          tier: adminCheck ? 'Enterprise Executive' : 'Enterprise Pro',
+          tier: isAdminMember ? 'Enterprise Executive' : 'Enterprise Pro',
           tokensRemaining: 1000000,
         };
         setUser(activeUser);

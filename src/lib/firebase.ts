@@ -34,7 +34,7 @@ export const firebaseConfig = {
 };
 
 // Prevent duplicate initialization: singleton app instance
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
@@ -145,9 +145,9 @@ export async function logoutUser() {
 export async function syncUserProfile(fbUser: FirebaseUser) {
   const userRef = doc(db, 'users', fbUser.uid);
   const path = `users/${fbUser.uid}`;
-  const isAdminUser = fbUser.email === 'gut6762@gmail.com';
 
   try {
+    const isServerAdmin = await verifyServerAdminRole(fbUser.email);
     const snap = await getDoc(userRef);
     if (!snap.exists()) {
       await setDoc(userRef, {
@@ -157,8 +157,8 @@ export async function syncUserProfile(fbUser: FirebaseUser) {
         photoURL:
           fbUser.photoURL ||
           'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-        role: isAdminUser ? 'admin' : 'user',
-        membership: isAdminUser ? 'enterprise' : 'pro',
+        role: isServerAdmin ? 'admin' : 'user',
+        membership: isServerAdmin ? 'enterprise' : 'pro',
         tokensRemaining: 1000000,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -167,6 +167,7 @@ export async function syncUserProfile(fbUser: FirebaseUser) {
       await updateDoc(userRef, {
         displayName: fbUser.displayName || snap.data().displayName,
         photoURL: fbUser.photoURL || snap.data().photoURL,
+        role: isServerAdmin ? 'admin' : snap.data().role || 'user',
         updatedAt: new Date().toISOString(),
       });
     }
@@ -191,10 +192,8 @@ export async function verifyServerAdminRole(email?: string | null): Promise<bool
   }
 }
 
-// Check Admin Status locally or from session role
+// Check Admin Status from user profile role
 export function isUserAdmin(email?: string | null, role?: string | null): boolean {
   if (role === 'admin') return true;
-  // If email matches session admin role
-  if (email && email === 'gut6762@gmail.com') return true;
   return false;
 }
