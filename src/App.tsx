@@ -534,7 +534,25 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`Gateway returned HTTP ${response.status}`);
+        let errorDetails = `Gateway returned HTTP ${response.status}`;
+        try {
+          const errData = await response.json();
+          if (errData?.error) {
+            errorDetails = `HTTP ${response.status}: ${errData.error}`;
+          } else if (errData?.message) {
+            errorDetails = `HTTP ${response.status}: ${errData.message}`;
+          }
+        } catch {
+          try {
+            const rawText = await response.text();
+            if (rawText && rawText.length < 300) {
+              errorDetails = `HTTP ${response.status}: ${rawText}`;
+            }
+          } catch {
+            // Ignore
+          }
+        }
+        throw new Error(errorDetails);
       }
 
       const reader = response.body?.getReader();

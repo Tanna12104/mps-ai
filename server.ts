@@ -1,10 +1,11 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import OpenAI from 'openai';
+import { handleChatStream } from './server/gateway';
 
 dotenv.config();
 
@@ -416,223 +417,33 @@ app.post('/api/admin/verify', (req: Request, res: Response) => {
   });
 });
 
-// 4. Unified AI API Gateway: SSE Real-Time Streaming Route
-app.post('/api/chat/stream', async (req: Request, res: Response) => {
-  const { mpsModelId, messages, attachments, userLang = 'en', personalContext } = req.body;
-
-  // Set SSE Headers
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders?.();
-
-  const sendEvent = (event: string, payload: unknown) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
-  };
-
-  // Find target MPS model configuration
-  const modelConfig = MPS_REGISTRY.find((m) => m.id === mpsModelId) || MPS_REGISTRY[2]; // Default to MPS 2.0
-
-  sendEvent('status', {
-    stage: 'resolving',
-    mpsModel: modelConfig.name,
-    mpsId: modelConfig.id,
-    timestamp: Date.now(),
-  });
-
-  // Base System Instructions
-  let systemInstruction = `You are MPS AI (${modelConfig.name}), a world-class premier AI intelligence platform designed with Apple-inspired liquid glass precision, utmost analytical rigor, and pristine clarity.
-You serve students, researchers, developers, and global enterprise leaders.
-Guidelines:
-1. Deliver answers with supreme clarity, structured markdown, bullet points, and headers where helpful.
-2. Format all mathematical and scientific formulations cleanly using standard LaTeX syntax ($...$ for inline formulas, $$...$$ for block formulas).
-3. For code requests, output clean, production-grade, well-commented code blocks with explicit language tags (e.g., \`\`\`tsx, \`\`\`python).
-4. Fluent in both Thai (ภาษาไทย) and English seamlessly. Respond in the language queried by the user or the requested language (${userLang === 'th' ? 'Thai' : 'English'}).
-5. If examining attached images, charts, or document files, thoroughly inspect and extract relevant details, transcribing text accurately and highlighting structural insights.
-6. Present yourself strictly as MPS AI. You are a proprietary intelligence engine.`;
-
-  // Inject User Personal AI Context if enabled
-  if (personalContext && personalContext.enabled && personalContext.instructions?.trim()) {
-    systemInstruction += `\n\n[USER PERSONAL AI CONTEXT / CUSTOM INSTRUCTIONS]:
-The user has established the following personal preferences and rules for all responses:
-"""
-${personalContext.instructions.trim()}
-"""
-Always honor and apply these personal instructions throughout your reasoning and synthesis.`;
-  }
-
-  let success = false;
-
-  // Attempt Primary Provider First
-  if (modelConfig.primaryProvider === 'gemini') {
-    if (geminiClient) {
-      try {
-        sendEvent('status', { stage: 'connecting', providerType: 'primary' });
-
-        const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> }> = [];
-
-        if (Array.isArray(messages)) {
-          for (let i = 0; i < messages.length; i++) {
-            const msg = messages[i];
-            const isLastMessage = i === messages.length - 1;
-            const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
-
-            if (isLastMessage && Array.isArray(attachments) && attachments.length > 0) {
-              for (const att of attachments) {
-                if (att.base64Data && att.type) {
-                  parts.push({
-                    inlineData: {
-                      mimeType: att.type,
-                      data: att.base64Data.replace(/^data:[^;]+;base64,/, ''),
-                    },
-                  });
-                }
-              }
-            }
-
-            if (msg.content) {
-              parts.push({ text: msg.content });
-            }
-
-            if (parts.length > 0) {
-              contents.push({
-                role: msg.role === 'assistant' ? 'model' : 'user',
-                parts,
-              });
-            }
-          }
-        }
-
-        const config: Record<string, unknown> = {
-          systemInstruction,
-        };
-
-        if (modelConfig.thinkingLevel) {
-          config.thinkingConfig = {
-            thinkingLevel:
-              modelConfig.thinkingLevel === 'HIGH'
-                ? ThinkingLevel.HIGH
-                : modelConfig.thinkingLevel === 'LOW'
-                ? ThinkingLevel.LOW
-                : ThinkingLevel.MEDIUM,
-          };
-        }
-
-        const streamResponse = await geminiClient.models.generateContentStream({
-          model: modelConfig.primaryModel,
-          contents,
-          config,
-        });
-
-        for await (const chunk of streamResponse) {
-          if (chunk.text) {
-            sendEvent('chunk', { text: chunk.text });
-          }
-        }
-
-        sendEvent('done', {
-          mpsModelId: modelConfig.id,
-          completedAt: Date.now(),
-          tokensEstimated: 850,
-        });
-        success = true;
-      } catch (geminiError: unknown) {
-        const errObj = geminiError as { message?: string; status?: number };
-        console.error('Gemini primary stream error:', errObj.message || geminiError);
-        sendEvent('warning', {
-          message: 'Primary engine encountered high latency. Engaging MPS Adaptive Fallback...',
-        });
-      }
+// 4. Unified AI API Gateway: SSE Real-Time Streaming Route (Express / Node.js)
+app.post(['/api/chat/stream', '/chat/stream'], async (req: Request, res: Response) => {
+  try {
+    return await handleChatStream(req, res);
+  } catch (err: unknown) {
+    const errorObj = err as { status?: number; message?: string };
+    console.error('[MPS-GATEWAY] Route unhandled error:', errorObj?.message || err);
+    if (!res.headersSent) {
+      return res.status(errorObj?.status || 500).json({
+        error: errorObj?.message || 'Internal server error processing stream',
+        status: errorObj?.status || 500,
+      });
     }
+    res.end();
   }
+});
 
-  // Fallback Provider: High-speed Gemini fallback
-  if (!success && geminiClient) {
-    try {
-      sendEvent('status', { stage: 'connecting', providerType: 'adaptive-fallback' });
-      const lastUserMsg = messages[messages.length - 1]?.content || 'Hello';
-
-      const fallbackStream = await geminiClient.models.generateContentStream({
-        model: modelConfig.fallbackModel && modelConfig.fallbackProvider === 'gemini' ? modelConfig.fallbackModel : 'gemini-3.1-flash-lite',
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `${systemInstruction}\n\nUser Question:\n${lastUserMsg}` }],
-          },
-        ],
-      });
-
-      for await (const chunk of fallbackStream) {
-        if (chunk.text) {
-          sendEvent('chunk', { text: chunk.text });
-        }
-      }
-
-      sendEvent('done', {
-        mpsModelId: modelConfig.id,
-        completedAt: Date.now(),
-        fallbackEngaged: true,
-      });
-      success = true;
-    } catch (fallbackErr: unknown) {
-      const errObj = fallbackErr as { message?: string };
-      console.error('Gemini fallback stream error:', errObj.message || fallbackErr);
-    }
-  }
-
-  // Fallback to OpenAI if configured and credits are available
-  if (!success && openaiClient) {
-    try {
-      sendEvent('status', { stage: 'connecting', providerType: 'openai-fallback' });
-
-      const openAiMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-        { role: 'system', content: systemInstruction },
-      ];
-
-      if (Array.isArray(messages)) {
-        for (const m of messages) {
-          openAiMessages.push({
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: m.content || '',
-          });
-        }
-      }
-
-      const openAiStream = await openaiClient.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: openAiMessages,
-        stream: true,
-      });
-
-      for await (const chunk of openAiStream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          sendEvent('chunk', { text: delta });
-        }
-      }
-
-      sendEvent('done', {
-        mpsModelId: modelConfig.id,
-        completedAt: Date.now(),
-        fallbackEngaged: true,
-      });
-      success = true;
-    } catch (openAiError: unknown) {
-      const errObj = openAiError as { message?: string };
-      console.error('OpenAI fallback error:', errObj.message || openAiError);
-    }
-  }
-
-  // If all attempts failed
-  if (!success) {
-    sendEvent('error', {
-      message:
-        'MPS Unified Gateway: No active AI backend response could be established. Please check network connectivity or API key quotas.',
+// Centralized error-handling middleware to prevent unhandled 500 crashes
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const errorObj = err as { status?: number; message?: string };
+  console.error('[MPS-SERVER-ERROR]', errorObj?.message || err);
+  if (!res.headersSent) {
+    res.status(errorObj?.status || 500).json({
+      error: errorObj?.message || 'Internal server error',
+      status: errorObj?.status || 500,
     });
   }
-
-  res.end();
 });
 
 // -------------------------------------------------------------
