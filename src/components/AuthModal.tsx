@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Language, translations } from '../utils/translations';
-import { signInWithGoogle } from '../lib/firebase';
+import { signInWithGoogle, auth } from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
   X,
   Sparkles,
@@ -37,6 +38,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
   const [copiedDomain, setCopiedDomain] = useState(false);
 
+  // Auto-dismiss modal if user is detected authenticated via Firebase
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) {
+        setIsLoading(false);
+        onLoginSuccess({
+          id: fbUser.uid,
+          name: fbUser.displayName || 'Intelligence Member',
+          email: fbUser.email || 'user@mps.ai',
+          role: 'user',
+          avatar:
+            fbUser.photoURL ||
+            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+          tier: 'Enterprise Pro',
+          tokensRemaining: 1000000,
+        });
+        onClose();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isOpen, onLoginSuccess, onClose]);
+
   if (!isOpen) return null;
 
   const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
@@ -53,24 +79,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setAuthError(null);
+
+    // Failsafe timeout: spinner is guaranteed to reset within 12 seconds
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+      if (!auth.currentUser) {
+        setAuthError(
+          lang === 'th'
+            ? 'การเข้าสู่ระบบใช้เวลานาน กรุณาตรวจสอบ Pop-up หรือลองอีกครั้ง'
+            : 'Sign-in took longer than expected. Please check browser pop-up settings.'
+        );
+      }
+    }, 12000);
+
     try {
       const fbUser = await signInWithGoogle();
-      // Server / Firestore validates real role
-      onLoginSuccess({
-        id: fbUser.uid,
-        name: fbUser.displayName || 'Intelligence Member',
-        email: fbUser.email || 'user@mps.ai',
-        role: 'user', // Default role for public authentication
-        avatar:
-          fbUser.photoURL ||
-          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-        tier: 'Enterprise Pro',
-        tokensRemaining: 1000000,
-      });
-      onClose();
+      clearTimeout(timer);
+      if (fbUser) {
+        onLoginSuccess({
+          id: fbUser.uid,
+          name: fbUser.displayName || 'Intelligence Member',
+          email: fbUser.email || 'user@mps.ai',
+          role: 'user',
+          avatar:
+            fbUser.photoURL ||
+            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+          tier: 'Enterprise Pro',
+          tokensRemaining: 1000000,
+        });
+        onClose();
+      }
     } catch (err: unknown) {
+      clearTimeout(timer);
       const errObj = err as { code?: string; message?: string; isDomainError?: boolean };
-      if (errObj?.isDomainError) {
+      if (errObj?.code === 'auth/popup-closed-by-user' || errObj?.code === 'auth/cancelled-popup-request') {
+        // User closed or dismissed popup voluntarily - cleanly stop loading without alarm
+        setAuthError(null);
+      } else if (errObj?.isDomainError) {
         setAuthError(
           lang === 'th'
             ? `Google Auth ต้องการให้เพิ่มโดเมน "${currentHostname}" ใน Authorized Domains ของ Firebase Console (crested-girder-0f6jr)`
@@ -80,13 +125,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setAuthError(errObj?.message || 'Authentication window closed.');
       }
     } finally {
+      clearTimeout(timer);
       setIsLoading(false);
     }
   };
 
   // Apple Sign-In
   const handleAppleSignIn = () => {
-    onLoginSuccess({
+    setIsLoading(true);
+    const appleUser = {
       id: 'usr_apple_' + Math.random().toString(36).substring(2, 8),
       name: 'Apple ID Member',
       email: 'member@icloud.com',
@@ -95,7 +142,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
       tier: 'Enterprise Pro',
       tokensRemaining: 1000000,
-    });
+    };
+    onLoginSuccess(appleUser);
+    setIsLoading(false);
     onClose();
   };
 
@@ -114,6 +163,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (data.success && data.user) {
         onLoginSuccess(data.user);
         onClose();
+      } else {
+        throw new Error('Login failed');
       }
     } catch {
       // Local fallback session

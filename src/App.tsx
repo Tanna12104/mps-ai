@@ -332,6 +332,12 @@ export default function App() {
           tokensRemaining: 1000000,
         };
         setUser(activeUser);
+        try {
+          localStorage.setItem('mps_user_session', JSON.stringify(activeUser));
+        } catch {
+          // Ignore localStorage quota
+        }
+        setAuthModalOpen(false);
 
         // Sync Firestore profile
         syncUserProfile(fbUser).catch((e) => console.warn('Firestore profile sync note:', e));
@@ -620,13 +626,14 @@ export default function App() {
         });
       } else {
         console.error('Chat stream error:', err);
+        const errMessage = (err as Error)?.message || '';
         updateAssistantMessage(targetConvId, assistantMessageId, {
           isStreaming: false,
           isError: true,
           content:
             lang === 'th'
-              ? 'ไม่สามารถเชื่อมต่อกับ MPS Gateway ได้ในขณะนี้ กรุณาตรวจสอบการตั้งค่า API Key หรือลองอีกครั้ง'
-              : 'MPS Gateway connection disrupted. Please ensure GEMINI_API_KEY is configured in Settings > Secrets.',
+              ? `ไม่สามารถเชื่อมต่อกับ MPS Gateway ได้ (${errMessage || 'Network Error'}) กรุณาตรวจสอบการตั้งค่า API Key หรือลองอีกครั้ง`
+              : `MPS Gateway error (${errMessage || 'Network Error'}). Please check API key configuration or try again.`,
         });
       }
     } finally {
@@ -714,6 +721,11 @@ export default function App() {
   // Auth login callback
   const handleLoginSuccess = (signedInUser: UserSession) => {
     setUser(signedInUser);
+    try {
+      localStorage.setItem('mps_user_session', JSON.stringify(signedInUser));
+    } catch {
+      // Ignore
+    }
     setAuthModalOpen(false);
 
     if (pendingPromptRef.current) {

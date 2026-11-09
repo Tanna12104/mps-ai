@@ -3,6 +3,10 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   signOut as fbSignOut,
   onAuthStateChanged,
   User as FirebaseUser,
@@ -40,6 +44,24 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export default app;
+
+// Enforce browserLocalPersistence so session persists across refresh/restart
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn('Firebase setPersistence notice:', err);
+  });
+
+  // Handle redirect result if user was redirected for authentication (e.g. mobile Safari)
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result?.user) {
+        syncUserProfile(result.user).catch((e) => console.warn('Redirect user sync notice:', e));
+      }
+    })
+    .catch((err) => {
+      console.warn('Redirect auth result notice:', err);
+    });
+}
 
 // Google Auth Provider configured for clean popup account selection
 export const googleProvider = new GoogleAuthProvider();
@@ -113,17 +135,29 @@ export async function testFirestoreConnection(): Promise<boolean> {
 }
 testFirestoreConnection();
 
-// Sign In with Google Popup
+// Sign In with Google Popup (with redirect fallback for mobile & sandboxed browsers)
 export async function signInWithGoogle() {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
-    await syncUserProfile(user);
+    // Non-blocking profile synchronization: user is authenticated immediately
+    syncUserProfile(user).catch((e) => console.warn('Non-blocking user profile sync notice:', e));
     return user;
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string };
     const errorCode = err?.code || 'auth/unknown';
     const errorMessage = err?.message || String(error);
+
+    // If popup was blocked by browser policies or third-party iframe, attempt redirect
+    if (errorCode === 'auth/popup-blocked') {
+      try {
+        await signInWithRedirect(auth, googleProvider);
+        return null;
+      } catch (redirectErr) {
+        console.warn('Redirect sign-in fallback notice:', redirectErr);
+      }
+    }
+
     throw {
       code: errorCode,
       message: errorMessage,
@@ -141,10 +175,9 @@ export async function logoutUser() {
   return await fbSignOut(auth);
 }
 
-// Sync User Profile in Firestore
+// Sync User Profile in Firestore (Resilient & Non-blocking)
 export async function syncUserProfile(fbUser: FirebaseUser) {
   const userRef = doc(db, 'users', fbUser.uid);
-  const path = `users/${fbUser.uid}`;
 
   try {
     const isServerAdmin = await verifyServerAdminRole(fbUser.email);
@@ -172,7 +205,7 @@ export async function syncUserProfile(fbUser: FirebaseUser) {
       });
     }
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('Firestore profile sync note (session active):', error);
   }
 }
 

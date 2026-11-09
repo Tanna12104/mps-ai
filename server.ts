@@ -638,7 +638,16 @@ Always honor and apply these personal instructions throughout your reasoning and
 // -------------------------------------------------------------
 // Vite Dev Server / Static Hosting Integration
 // -------------------------------------------------------------
+// Vite Dev Server / Static Hosting Integration
+// -------------------------------------------------------------
+export { app };
+export default app;
+
 async function startServer() {
+  if (process.env.VERCEL) {
+    return;
+  }
+
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
@@ -662,7 +671,9 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Fatal error starting MPS Platform server:', err);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Fatal error starting MPS Platform server:', err);
+    process.exit(1);
+  });
+}
